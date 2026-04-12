@@ -4,24 +4,102 @@ from botasaurus import *
 import time
 import re
 import requests
+from urllib.parse import quote_plus
 from sqlalchemy import create_engine, exc
 from typing import Literal
 from datetime import datetime
 from sqlalchemy import create_engine
-from src.constants import zona_prop_url, max_number_pages_zonaprop
+from src.constants import (
+    zona_prop_url,
+    max_number_pages_zonaprop,
+    default_locality_slug_zonaprop,
+    ZONAPROP_RESOLVE_DETAIL_COORDINATES,
+)
 
-def _get_page_number_url(number:int, type_building:str, type_operation:str) -> str:
-    url = zona_prop_url + type_building + f"-{type_operation}-capital-federal-pagina-{number}.html"
+_GEO_CACHE = {}
+
+
+def _extract_coordinates_from_detail(detail_url: str) -> tuple[float | None, float | None]:
+    try:
+        response = requests.get(
+            detail_url,
+            timeout=20,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                )
+            },
+        )
+        if response.status_code != 200:
+            return None, None
+        html = response.text
+        lat_match = re.search(r'"latitude"\s*:\s*(-?\d+\.\d+)', html, re.IGNORECASE)
+        lon_match = re.search(r'"longitude"\s*:\s*(-?\d+\.\d+)', html, re.IGNORECASE)
+        if lat_match and lon_match:
+            return float(lat_match.group(1)), float(lon_match.group(1))
+
+        at_match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', html)
+        if at_match:
+            return float(at_match.group(1)), float(at_match.group(2))
+    except Exception:
+        return None, None
+
+    return None, None
+
+
+def _geocode_location(location_text: str) -> tuple[float | None, float | None]:
+    if not location_text:
+        return None, None
+
+    query = f"{location_text}, Argentina"
+    if query in _GEO_CACHE:
+        return _GEO_CACHE[query]
+
+    try:
+        url = (
+            "https://nominatim.openstreetmap.org/search"
+            f"?q={quote_plus(query)}&format=json&limit=1"
+        )
+        response = requests.get(
+            url,
+            timeout=20,
+            headers={"User-Agent": "scraping-inmuebles/1.0"},
+        )
+        if response.status_code != 200:
+            _GEO_CACHE[query] = (None, None)
+            return None, None
+        payload = response.json()
+        if payload:
+            lat = float(payload[0]["lat"])
+            lon = float(payload[0]["lon"])
+            _GEO_CACHE[query] = (lat, lon)
+            return lat, lon
+    except Exception:
+        pass
+
+    _GEO_CACHE[query] = (None, None)
+    return None, None
+
+def _get_page_number_url(number:int, type_building:str, type_operation:str, locality_slug:str) -> str:
+    url = zona_prop_url + type_building + f"-{type_operation}-{locality_slug}-pagina-{number}.html"
     return url
 
-def _get_url_list(max_number:int, type_building:str, type_operation:str) -> list[str]:
+def _get_url_list(max_number:int, type_building:str, type_operation:str, locality_slug:str) -> list[str]:
     request = AntiDetectRequests()
-    response = request.get(_get_page_number_url(max_number, type_building, type_operation), allow_redirects=True)
+    response = request.get(
+        _get_page_number_url(max_number, type_building, type_operation, locality_slug),
+        allow_redirects=True,
+    )
     last_page_url = response.url
     match = re.search(r'(\d+)\.html$', last_page_url)
     if match:
         last_page_number = (match.group(1))
-        page_list = [_get_page_number_url(i, type_building, type_operation) for i in range(1, int(last_page_number) + 1)]
+        page_list = [
+            _get_page_number_url(i, type_building, type_operation, locality_slug)
+            for i in range(1, int(last_page_number) + 1)
+        ]
         return page_list
     else:
         print("Could not find last webpage, try again in a few minutes")
@@ -51,7 +129,7 @@ def _parse_property_listings(soup, posting_container_class:str) -> list:
     # print("Propiedades final de _parse", properties)
     return properties
 
-def _parse_property(property_element) -> dict:
+def _parse_property(property_element, resolve_detail_coordinates: bool = False) -> dict:
     """Parses an individual property from the property element.
 
     Args:
@@ -69,6 +147,14 @@ def _parse_property(property_element) -> dict:
     description_element = property_element.find(attrs={'data-qa': 'POSTING_CARD_DESCRIPTION'}).text
     expensas_element = property_element.find(attrs={'data-qa': 'expensas'}).text
     ap_link_element = property_element.find(attrs={"data-to-posting": True})['data-to-posting']
+    full_url = zona_prop_url[:-1] + ap_link_element if ap_link_element else np.nan
+
+    lat, lon = (None, None)
+    if isinstance(full_url, str):
+        if resolve_detail_coordinates:
+            lat, lon = _extract_coordinates_from_detail(full_url)
+        if lat is None or lon is None:
+            lat, lon = _geocode_location(location_element or address_element)
     # print("price_element", price_element)
     data = {
         'id': id_element if id_element else np.nan,
@@ -80,7 +166,9 @@ def _parse_property(property_element) -> dict:
         # 'Summarize': summarize_element if summarize_element else np.nan,
         'Description': description_element if description_element else np.nan,
         'Expensas': expensas_element if expensas_element else np.nan,
-        'Link': zona_prop_url[:-1] + ap_link_element if ap_link_element else np.nan,
+        'Link': full_url,
+        'latitude': lat,
+        'longitude': lon,
     }
     
     # print(data)
@@ -101,6 +189,7 @@ def _get_posting_container_class(soup):
     
 def _scrape_property_listings(request: AntiDetectRequests, 
                               url_list: list[str],
+                              resolve_detail_coordinates: bool = False,
                               ) -> list:
     """Scrapes property listings from ZonaProp.
 
@@ -122,7 +211,20 @@ def _scrape_property_listings(request: AntiDetectRequests,
                 with open("soup.html", "w", encoding="utf-8") as f:
                     f.write(str(soup))
             posting_container_class = _get_posting_container_class(soup)
-            properties += _parse_property_listings(soup, posting_container_class)
+            # Pasamos la bandera de coordenadas al parser de cada propiedad.
+            page_properties = []
+            property_elements = soup.find_all(class_=posting_container_class)
+            for property_element in property_elements:
+                try:
+                    page_properties.append(
+                        _parse_property(
+                            property_element,
+                            resolve_detail_coordinates=resolve_detail_coordinates,
+                        )
+                    )
+                except Exception:
+                    pass
+            properties += page_properties
             if itereation_count == 1:
                 print("Test of properties:\n", properties)
         except requests.exceptions.HTTPError as e:
@@ -141,7 +243,9 @@ def _export_scrap_zonaprop(df: pd.DataFrame, type_building, type_operation):
 def main_scrap_zonaprop(
     type_operation: Literal["alquiler", "venta"] = "alquiler", 
     type_building:Literal["locales-comerciales", "departamentos","oficinas-comerciales"] = "departamentos",
+    locality_slug: str = default_locality_slug_zonaprop,
     export_final_results:bool = True,
+    resolve_detail_coordinates: bool = ZONAPROP_RESOLVE_DETAIL_COORDINATES,
     db_file: str = 'zonaprop.db'
                         ) -> list:
     """Runs the main process of scraping property listings from ZonaProp.
@@ -149,11 +253,15 @@ def main_scrap_zonaprop(
     Returns:
         list: A list of dictionaries, each representing a property listing.
     """
-    url_list =  _get_url_list(max_number_pages_zonaprop, type_building, type_operation)
+    url_list =  _get_url_list(max_number_pages_zonaprop, type_building, type_operation, locality_slug)
     print("Max html page:", url_list[-1])
     try:
         request = AntiDetectRequests()
-        final_list = _scrape_property_listings(request, url_list)
+        final_list = _scrape_property_listings(
+            request,
+            url_list,
+            resolve_detail_coordinates=resolve_detail_coordinates,
+        )
         
         if export_final_results:
             df = pd.DataFrame(final_list)

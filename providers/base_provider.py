@@ -1,24 +1,38 @@
 import logging
 import cloudscraper
 from abc import ABC, abstractmethod
-from lib.hostname_ignoring_adapter import HostNameIgnoringAdapter
 import yaml
 
-# configuration    
-with open("configuration.yml", 'r') as ymlfile:
-    print('loading config')
-    cfg = yaml.safe_load(ymlfile)
+# configuration
+try:
+    with open("configuration.yml", "r") as ymlfile:
+        print("loading config")
+        cfg = yaml.safe_load(ymlfile) or {}
+except FileNotFoundError:
+    logging.warning("configuration.yml no encontrado, se usara configuracion por defecto.")
+    cfg = {}
 
 disable_ssl = False
 
 if 'disable_ssl' in cfg:
     disable_ssl = cfg['disable_ssl']
+
+HostNameIgnoringAdapter = None
+if disable_ssl:
+    try:
+        from lib.hostname_ignoring_adapter import HostNameIgnoringAdapter
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "disable_ssl=true requiere lib/hostname_ignoring_adapter.py, pero no existe en este proyecto."
+        ) from exc
+
+
 class BaseProvider(ABC):
     def __init__(self, provider_name, provider_data):
         self.provider_name = provider_name
         self.provider_data = provider_data
         self.__scraper = cloudscraper.create_scraper()
-        if disable_ssl:
+        if disable_ssl and HostNameIgnoringAdapter is not None:
             self.__scraper.mount('https://', HostNameIgnoringAdapter())
     
     @abstractmethod

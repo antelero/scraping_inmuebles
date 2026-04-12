@@ -7,7 +7,7 @@
 /build
 /error_logs
 /cache
-# /output
+/output
 /tests
 /jupyter
 *.html
