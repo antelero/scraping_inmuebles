@@ -62,6 +62,20 @@ Editar `src/constants.py`:
 
 Además, cada proveedor tiene sus constantes específicas de URL/path en el mismo archivo.
 
+Opcionalmente podes crear `configuration.yml` (en la raiz) para controlar SSL:
+
+```yaml
+disable_ssl: false
+allow_insecure_ssl_fallback: true
+suppress_insecure_request_warning: true
+log_insecure_ssl_every_request: false
+```
+
+- `disable_ssl`: desactiva validacion SSL para todas las requests.
+- `allow_insecure_ssl_fallback`: si hay `CERTIFICATE_VERIFY_FAILED`, reintenta una vez sin validacion SSL usando una sesion requests separada.
+- `suppress_insecure_request_warning`: oculta el warning de urllib3 cuando se hace request sin validar SSL.
+- `log_insecure_ssl_every_request`: si es `false`, los warnings SSL propios se muestran una sola vez por host/proveedor.
+
 ## Ejecución
 
 ### Opción 1: flujo principal
@@ -107,6 +121,18 @@ docker run -it --rm -v "${PWD}/output:/app/output" mi-scraper
 ```
 
 Nota: el `Dockerfile` ejecuta `python main_scrap.py` por defecto.
+
+### Troubleshooting SSL en Docker
+
+Si aparece `SSLCertVerificationError` al hacer requests HTTPS dentro del contenedor:
+
+1. Rebuild de imagen para actualizar certificados del contenedor:
+
+```bash
+docker build --no-cache -t mi-scraper .
+```
+
+2. Si estas detras de proxy/certificado corporativo, agrega tu CA al contenedor o monta `configuration.yml` con `disable_ssl: true` solo para pruebas puntuales.
 
 ## Llevar este proyecto a tu propio repositorio
 

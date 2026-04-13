@@ -1,32 +1,38 @@
-# Imagen base con Python
+# Imagen base
 FROM python:3.11-slim
 
-# Evitar prompts interactivos
 ENV DEBIAN_FRONTEND=noninteractive
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
-# Instalar Node.js + dependencias necesarias
+# 🔴 Instalar certificados PRIMERO (clave)
 RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    openssl \
     curl \
     gnupg \
-    ca-certificates \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && apt-get clean
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Verificar instalación (opcional pero útil)
+RUN apt-get update && apt-get install -y nodejs npm
+
+# Verificación
 RUN node -v && npm -v
 
-# Crear directorio de trabajo
+# Directorio de trabajo
 WORKDIR /app
 
-# Copiar requirements primero (cachea mejor)
+# Copiar requirements
 COPY requirements.txt .
 
-# Instalar dependencias Python
-RUN pip install --no-cache-dir -r requirements.txt
+#Asegurar pip actualizado + certificados Python
+RUN python -m pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --upgrade pip certifi
 
-# Copiar el resto del proyecto
+#Instalar dependencias Python
+RUN pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --no-cache-dir -r requirements.txt
+
+# Copiar resto del proyecto
 COPY . .
 
-# Comando por defecto
 CMD ["python", "main_scrap.py"]

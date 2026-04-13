@@ -26,10 +26,13 @@ from src.constants import (
 
 
 def _build_properati_source(type_operation: str, type_building: str, locality_slug: str) -> str:
-    # Properati actual suele resolver como /s/<localidad>/<operacion> para busquedas generales.
+    properati_locality = locality_slug
+    if not properati_locality.endswith("-argentina"):
+        properati_locality = f"{properati_locality}-argentina"
+
     if type_building == "inmuebles":
-        return f"/s/{locality_slug}/{type_operation}"
-    return f"/s/{locality_slug}/{type_building}/{type_operation}"
+        return f"/s/{properati_locality}/{type_operation}"
+    return f"/s/{properati_locality}/{type_building}/{type_operation}"
 
 
 def _build_argenprop_source(type_operation: str, type_building: str, locality_slug: str) -> str:

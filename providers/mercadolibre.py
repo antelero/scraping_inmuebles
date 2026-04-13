@@ -3,7 +3,8 @@ import cloudscraper
 import logging
 import re
 from urllib.parse import quote_plus
-from providers.base_provider import BaseProvider
+from providers.base_provider import BaseProvider, allow_insecure_ssl_fallback
+from requests.exceptions import SSLError
 
 
 class Mercadolibre(BaseProvider):
@@ -21,13 +22,26 @@ class Mercadolibre(BaseProvider):
         self.resolve_detail_coordinates = bool(provider_data.get('resolve_detail_coordinates', False))
         # Scraper propio con UA de escritorio para evitar el redirect de ML.
         self._scraper = cloudscraper.create_scraper()
-        self._scraper.headers.update({
+        _ml_headers = {
             'User-Agent': self._BROWSER_UA,
             'Accept-Language': 'es-AR,es;q=0.9',
-        })
+        }
+        self._scraper.headers.update(_ml_headers)
+        # Aplicar mismo UA a la sesion insegura heredada de BaseProvider.
+        self._insecure_session.headers.update(_ml_headers)
 
     def request(self, url):
-        return self._scraper.get(url)
+        try:
+            return self._scraper.get(url)
+        except SSLError as exc:
+            if allow_insecure_ssl_fallback and "CERTIFICATE_VERIFY_FAILED" in str(exc):
+                self._log_ssl_warning(
+                    url,
+                    "Fallo validacion SSL para %s. Reintentando con verify=False "
+                    "(allow_insecure_ssl_fallback=true).",
+                )
+                return self._insecure_request(url)
+            raise
 
     # ------------------------------------------------------------------ helpers
 
