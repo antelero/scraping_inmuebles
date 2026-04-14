@@ -147,6 +147,9 @@ class Properati(BaseProvider):
                 if price:
                     title = f"{title} {price}".strip()
 
+                type_match = re.match(r'^(.+?) en (?:Venta|Alquiler)', title, re.IGNORECASE)
+                property_type = type_match.group(1).strip().lower() if type_match else ''
+
                 lat, lon = (None, None)
                 if self.resolve_detail_coordinates:
                     lat, lon = self._extract_coordinates_from_detail(href)
@@ -158,6 +161,7 @@ class Properati(BaseProvider):
                     'url': href,
                     'internal_id': internal_id,
                     'provider': self.provider_name,
+                    'property_type': property_type,
                     'location': location,
                     'features': features,
                     'bedrooms': bedrooms,

@@ -104,7 +104,7 @@ def _export_results(rows: list[dict], provider_name: str, suffix: str = "") -> N
 
     df = pd.DataFrame(rows)
     expected_columns = [
-        'title', 'url', 'internal_id', 'provider', 'location',
+        'title', 'url', 'internal_id', 'provider', 'property_type', 'location',
         'features', 'bedrooms', 'bathrooms', 'area_m2',
         'latitude', 'longitude'
     ]

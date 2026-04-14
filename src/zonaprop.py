@@ -1,10 +1,39 @@
+import logging
 import pandas as pd
 import numpy as np
 from botasaurus import *
 import time
 import re
 import requests
+from bs4 import BeautifulSoup
+from requests.exceptions import SSLError as _SSLError
 from urllib.parse import quote_plus
+
+try:
+    from providers.base_provider import allow_insecure_ssl_fallback as _allow_ssl_fallback
+except ImportError:
+    _allow_ssl_fallback = True
+
+_insecure_session = requests.Session()
+_insecure_session.headers.update({
+    'User-Agent': (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/120.0.0.0 Safari/537.36'
+    )
+})
+
+
+def _fallback_get(url, **kwargs):
+    """Fallback GET sin verificacion SSL, para cuando AntiDetectRequests falla por certificado."""
+    kwargs.pop('verify', None)
+    return _insecure_session.get(url, verify=False, **kwargs)
+
+
+def _fallback_bs4(url):
+    """Fallback: descarga URL sin SSL y devuelve BeautifulSoup."""
+    resp = _insecure_session.get(url, verify=False)
+    return BeautifulSoup(resp.content, 'lxml')
 from sqlalchemy import create_engine, exc
 from typing import Literal
 from datetime import datetime
@@ -88,10 +117,17 @@ def _get_page_number_url(number:int, type_building:str, type_operation:str, loca
 
 def _get_url_list(max_number:int, type_building:str, type_operation:str, locality_slug:str) -> list[str]:
     request = AntiDetectRequests()
-    response = request.get(
-        _get_page_number_url(max_number, type_building, type_operation, locality_slug),
-        allow_redirects=True,
-    )
+    first_url = _get_page_number_url(max_number, type_building, type_operation, locality_slug)
+    try:
+        response = request.get(first_url, allow_redirects=True)
+    except _SSLError as exc:
+        if _allow_ssl_fallback and 'CERTIFICATE_VERIFY_FAILED' in str(exc):
+            logging.warning(
+                'Fallo validacion SSL en zonaprop._get_url_list. Reintentando con verify=False.'
+            )
+            response = _fallback_get(first_url, allow_redirects=True)
+        else:
+            raise
     last_page_url = response.url
     match = re.search(r'(\d+)\.html$', last_page_url)
     if match:
@@ -206,7 +242,17 @@ def _scrape_property_listings(request: AntiDetectRequests,
         itereation_count += 1
         print(link)
         try:
-            soup = request.bs4(link)
+            try:
+                soup = request.bs4(link)
+            except _SSLError as exc:
+                if _allow_ssl_fallback and 'CERTIFICATE_VERIFY_FAILED' in str(exc):
+                    logging.warning(
+                        'Fallo validacion SSL en zonaprop scrape %s. Reintentando con verify=False.',
+                        link,
+                    )
+                    soup = _fallback_bs4(link)
+                else:
+                    raise
             if itereation_count == 1:
                 with open("soup.html", "w", encoding="utf-8") as f:
                     f.write(str(soup))
@@ -236,9 +282,11 @@ def _scrape_property_listings(request: AntiDetectRequests,
     return properties
 
 def _export_scrap_zonaprop(df: pd.DataFrame, type_building, type_operation):
-    df.to_pickle(
-        f"./output/zonaprop_{type_operation}_{type_building}_{datetime.now().strftime('%Y_%m_%d')}.pkl"
-    )
+    base = f"./output/zonaprop_{type_operation}_{type_building}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+    df.to_pickle(f"{base}.pkl")
+    df.to_csv(f"{base}.csv", index=False, encoding='utf-8')
+    print(f"Export PKL zonaprop: {base}.pkl")
+    print(f"Export CSV zonaprop: {base}.csv")
 
 def main_scrap_zonaprop(
     type_operation: Literal["alquiler", "venta"] = "alquiler", 

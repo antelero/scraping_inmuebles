@@ -1,10 +1,10 @@
 zona_prop_url = "https://www.zonaprop.com.ar/"
-max_number_pages_zonaprop = 20  #1_000_000 #symbolic max in order to capturate the last page
+max_number_pages_zonaprop = 1_000_000  # symbolic max para capturar la ultima pagina real
 ZONAPROP_RESOLVE_DETAIL_COORDINATES = True
 LOCALITY_SLUG = "entre-rios"  # slug base; Properati agrega -argentina automaticamente
 PROVIDER = "batch"  # recomendado para cierre de version
 # Orden recomendado para produccion: primero los mas estables, luego ML/Zonaprop.
-PROVIDERS_TO_RUN =  [ "mercadolibre" ]# ["argenprop", "properati", "inmobusqueda", "mercadolibre", "zonaprop"]
+PROVIDERS_TO_RUN =  [ "zonaprop" ]# ["argenprop", "properati", "inmobusqueda", "mercadolibre", "zonaprop"]
 TYPE_OPERATION = "venta"   # opciones: "alquiler" | "venta"
 TYPE_BUILDING  = "inmuebles"  # opciones: "inmuebles" | "locales-comerciales"
 default_locality_slug_zonaprop = LOCALITY_SLUG

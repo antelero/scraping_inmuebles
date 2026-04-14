@@ -156,6 +156,9 @@ class Argenprop(BaseProvider):
                 # URL absoluta
                 full_url = href if href.startswith('http') else base_url + href
 
+                type_match = re.match(r'^/([\w-]+?)-en-(?:venta|alquiler)-en-', href)
+                property_type = type_match.group(1).lower() if type_match else ''
+
                 # Coordenadas
                 lat, lon = None, None
                 if self.resolve_detail_coordinates:
@@ -168,6 +171,7 @@ class Argenprop(BaseProvider):
                     'url': full_url,
                     'internal_id': internal_id,
                     'provider': self.provider_name,
+                    'property_type': property_type,
                     'location': location,
                     'features': features,
                     'bedrooms': bedrooms,

@@ -161,6 +161,9 @@ class Mercadolibre(BaseProvider):
                     continue
                 internal_id = matches.group(1).replace('-', '')
 
+                subdomain_match = re.match(r'https?://([^.]+)\.mercadolibre\.com', href)
+                property_type = subdomain_match.group(1).lower() if subdomain_match and subdomain_match.group(1) != 'inmuebles' else ''
+
                 # Precio
                 currency_node = prop.find('span', class_='andes-money-amount__currency-symbol')
                 fraction_node = prop.find('span', class_='andes-money-amount__fraction')
@@ -193,6 +196,7 @@ class Mercadolibre(BaseProvider):
                     'url': href,
                     'internal_id': internal_id,
                     'provider': self.provider_name,
+                    'property_type': property_type,
                     'location': location,
                     'features': features,
                     'bedrooms': bedrooms,
